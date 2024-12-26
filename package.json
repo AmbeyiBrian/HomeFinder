@@ -1,0 +1,11 @@
+{
+  "dependencies": {
+    "@babel/plugin-transform-class-properties": "^7.25.9",
+    "expo-image-picker": "~16.0.3",
+    "expo-linear-gradient": "~14.0.1",
+    "install": "^0.13.0",
+    "npm": "^11.0.0",
+    "react-native-elements": "^3.4.3",
+    "react-native-image-picker": "^7.2.3"
+  }
+}

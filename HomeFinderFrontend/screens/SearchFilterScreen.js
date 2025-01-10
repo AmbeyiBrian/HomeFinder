@@ -1,34 +1,64 @@
-import React, { useState } from 'react';
-import { View, Text,ScrollView, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import Slider from '@react-native-community/slider';
 import { Picker } from '@react-native-picker/picker';
+import * as SecureStore from 'expo-secure-store';
 import { useFilters } from '../context/FilterContext';
 
+const FILTER_STORAGE_KEY = 'property_search_filters';
+
 const SearchFilterScreen = ({ navigation, route }) => {
-  // Get existing filters from context
   const { filters: existingFilters, setFilters } = useFilters();
 
-  const [minPrice, setMinPrice] = useState(existingFilters.minPrice || 0);
-  const [maxPrice, setMaxPrice] = useState(existingFilters.maxPrice || 1000000);
-  const [bedrooms, setBedrooms] = useState(existingFilters.bedrooms || 0);
-  const [bathrooms, setBathrooms] = useState(existingFilters.bathrooms || 0);
-  const [propertyType, setPropertyType] = useState(existingFilters.propertyType || '');
-  const [listingType, setListingType] = useState(existingFilters.listingType || '');
+  const [minPrice, setMinPrice] = useState(0);
+  const [maxPrice, setMaxPrice] = useState(1000000);
+  const [bedrooms, setBedrooms] = useState(null);
+  const [bathrooms, setBathrooms] = useState(null);
+  const [propertyType, setPropertyType] = useState('');
+  const [listingType, setListingType] = useState('');
 
-  const applyFilters = () => {
+  // Load saved filters from SecureStore on component mount
+  useEffect(() => {
+    loadSavedFilters();
+  }, []);
+
+  const loadSavedFilters = async () => {
+    try {
+      const savedFilters = await SecureStore.getItemAsync(FILTER_STORAGE_KEY);
+      if (savedFilters) {
+        const parsedFilters = JSON.parse(savedFilters);
+        setMinPrice(parsedFilters.minPrice ?? 0);
+        setMaxPrice(parsedFilters.maxPrice ?? 1000000);
+        setBedrooms(parsedFilters.bedrooms ?? null);
+        setBathrooms(parsedFilters.bathrooms ?? null);
+        setPropertyType(parsedFilters.propertyType ?? '');
+        setListingType(parsedFilters.listingType ?? '');
+      }
+    } catch (error) {
+      console.error('Error loading saved filters:', error);
+    }
+  };
+
+  const saveFilters = async (filters) => {
+    try {
+      await SecureStore.setItemAsync(FILTER_STORAGE_KEY, JSON.stringify(filters));
+    } catch (error) {
+      console.error('Error saving filters:', error);
+    }
+  };
+
+  const applyFilters = async () => {
     const newFilters = {
-          minPrice,
-          maxPrice,
-          bedrooms,
-          bathrooms,
-          propertyType,
-          listingType
+      ...(minPrice > 0 && { minPrice }),
+      ...(maxPrice < 1000000 && { maxPrice }),
+      ...(bedrooms > 0 && { bedrooms }),
+      ...(bathrooms > 0 && { bathrooms }),
+      ...(propertyType && { propertyType }),
+      ...(listingType && { listingType }),
     };
 
-    // Remove undefined or null values
-    Object.keys(newFilters).forEach(key =>
-      (newFilters[key] === undefined || newFilters[key] === null) && delete newFilters[key]
-    );
+    // Save filters to SecureStore
+    await saveFilters(newFilters);
 
     // Update filters in context
     setFilters(newFilters);
@@ -37,29 +67,29 @@ const SearchFilterScreen = ({ navigation, route }) => {
     navigation.goBack();
   };
 
-  const resetFilters = () => {
+  const resetFilters = async () => {
     // Reset local state
     setMinPrice(0);
     setMaxPrice(1000000);
-    setBedrooms(0);
-    setBathrooms(0);
+    setBedrooms(null);
+    setBathrooms(null);
     setPropertyType('');
     setListingType('');
+
+    // Clear saved filters
+    await SecureStore.deleteItemAsync(FILTER_STORAGE_KEY);
 
     // Clear filters in context
     setFilters({});
   };
 
-
   return (
     <ScrollView style={styles.container}>
-      <Text style={styles.title}>Property Filters</Text>
-
       {/* Price Range Filter */}
       <View style={styles.filterSection}>
         <Text style={styles.label}>Price Range</Text>
         <View style={styles.sliderContainer}>
-          <Text>${minPrice.toLocaleString()}</Text>
+          <Text>Ksh. {minPrice.toLocaleString()}</Text>
           <Slider
             style={styles.slider}
             minimumValue={0}
@@ -72,7 +102,7 @@ const SearchFilterScreen = ({ navigation, route }) => {
           />
         </View>
         <View style={styles.sliderContainer}>
-          <Text>${maxPrice.toLocaleString()}</Text>
+          <Text>Ksh. {maxPrice.toLocaleString()}</Text>
           <Slider
             style={styles.slider}
             minimumValue={0}
@@ -93,10 +123,11 @@ const SearchFilterScreen = ({ navigation, route }) => {
           selectedValue={bedrooms}
           onValueChange={(itemValue) => setBedrooms(itemValue)}
         >
-          {[0, 1, 2, 3, 4, 5].map(num => (
+          <Picker.Item label="Any" value={null} />
+          {[1, 2, 3, 4, 5].map(num => (
             <Picker.Item
               key={num}
-              label={num === 0 ? 'Any' : num.toString()}
+              label={num.toString()}
               value={num}
             />
           ))}
@@ -110,10 +141,11 @@ const SearchFilterScreen = ({ navigation, route }) => {
           selectedValue={bathrooms}
           onValueChange={(itemValue) => setBathrooms(itemValue)}
         >
-          {[0, 1, 2, 3, 4, 5].map(num => (
+          <Picker.Item label="Any" value={null} />
+          {[1, 2, 3, 4, 5].map(num => (
             <Picker.Item
               key={num}
-              label={num === 0 ? 'Any' : num.toString()}
+              label={num.toString()}
               value={num}
             />
           ))}
@@ -135,11 +167,11 @@ const SearchFilterScreen = ({ navigation, route }) => {
         </Picker>
       </View>
 
-      {/* Property Type Filter */}
+      {/* Listing Type Filter */}
       <View style={styles.filterSection}>
         <Text style={styles.label}>Listing Type</Text>
         <Picker
-          selectedValue={propertyType}
+          selectedValue={listingType}
           onValueChange={(itemValue) => setListingType(itemValue)}
         >
           <Picker.Item label="Any" value="" />
@@ -211,14 +243,14 @@ const styles = StyleSheet.create({
   },
   resetButton: {
     flex: 1,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: 'grey',
     padding: 15,
     borderRadius: 10,
     marginRight: 10,
     alignItems: 'center',
   },
   resetButtonText: {
-    color: '#333',
+    color: '#ffffff',
     fontWeight: 'bold',
   },
   applyButton: {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   Image,
   TouchableOpacity,
   RefreshControl,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { propertyApi } from '../api/propertyApi';
@@ -15,40 +16,77 @@ const FavoritesScreen = ({ navigation }) => {
   const [favorites, setFavorites] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [validToken, setValidToken] = useState(false);
 
-  // Fetch favorite properties from the backend
-  const fetchFavorites = async () => {
+  // Memoized fetch favorites function
+  const fetchFavorites = useCallback(async () => {
     try {
       const response = await propertyApi.getFavorites();
-      setFavorites(response); // Assuming response contains the array
+      setFavorites(response);
     } catch (error) {
       console.error('Error fetching favorites:', error.message);
+      Alert.alert('Error', 'Failed to fetch favorites');
     } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Handle removing a favorite property
+  const handleRemoveFavorite = async (favoriteId) => {
+    try {
+      await propertyApi.removeFavorite(favoriteId);
+      setFavorites(favorites.filter((item) => item.id !== favoriteId));
+    } catch (error) {
+      console.error('Error removing favorite:', error.message);
+      Alert.alert('Error', 'Failed to remove favorite');
+    }
+  };
+
+  // Initial data fetch and token validation
+  useEffect(() => {
+  let isMounted = true;
+
+  const fetchData = async () => {
+    try {
+      // First validate the token
+      const isTokenValid = await propertyApi.validateToken();
+
+      if (!isMounted) return;
+
+      setValidToken(isTokenValid);
+
+      // Add this: If token is valid, fetch favorites
+      if (isTokenValid) {
+        await fetchFavorites();
+      }
+
+      // Add this: Set loading to false after everything is done
+      setLoading(false);
+    } catch (error) {
+      console.error('Error during initial data fetch:', error);
+
+      if (!isMounted) return;
+
       setLoading(false);
     }
   };
 
-  // Remove a property from favorites
-  const handleRemoveFavorite = async (favoriteId) => {
-    try {
-      await propertyApi.removeFavorite(favoriteId); // Remove via API
-      setFavorites(favorites.filter((item) => item.id !== favoriteId)); // Update state
-    } catch (error) {
-      console.error('Error removing favorite:', error.message);
-    }
+  fetchData();
+
+  return () => {
+    isMounted = false;
   };
+}, [fetchFavorites]); // Make sure fetchFavorites is in the dependency array
 
-  useEffect(() => {
-    fetchFavorites();
-  }, []);
-
-  const onRefresh = async () => {
+  // Handle pull-to-refresh
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await fetchFavorites();
     setRefreshing(false);
-  };
+  }, [fetchFavorites]);
 
-  const renderFavoriteItem = ({ item }) => (
+  // Render individual favorite item
+  const renderFavoriteItem = useCallback(({ item }) => (
     <TouchableOpacity
       style={styles.favoriteCard}
       onPress={() =>
@@ -66,7 +104,7 @@ const FavoritesScreen = ({ navigation }) => {
       />
       <View style={styles.favoriteDetails}>
         <Text style={styles.favoriteName}>{item.property.title}</Text>
-        <Text style={styles.favoritePrice}>${item.property.price}</Text>
+        <Text style={styles.favoritePrice}>Ksh. {item.property.price}</Text>
         <Text style={styles.propertyDetails}>
           {`${item.property.bedrooms} bd | ${item.property.bathrooms} ba | ${item.property.square_feet} sq.ft`}
         </Text>
@@ -86,8 +124,9 @@ const FavoritesScreen = ({ navigation }) => {
         </TouchableOpacity>
       </View>
     </TouchableOpacity>
-  );
+  ), [navigation, handleRemoveFavorite]);
 
+  // Loading state
   if (loading) {
     return (
       <View style={styles.skeletonContainer}>
@@ -96,6 +135,7 @@ const FavoritesScreen = ({ navigation }) => {
     );
   }
 
+  // Main render
   return (
     <View style={styles.container}>
       <FlatList

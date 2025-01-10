@@ -31,9 +31,9 @@ class PropertySerializer(serializers.ModelSerializer):
             'property_type_id', 'bedrooms', 'bathrooms', 'square_feet',
             'address', 'city', 'state', 'zip_code',
             'latitude', 'longitude', 'status', 'owner',
-            'created_at', 'updated_at', 'images'
+            'created_at', 'updated_at', 'images', 'is_verified'
         ]
-        read_only_fields = ['owner', 'created_at', 'updated_at']
+        read_only_fields = ['owner', 'created_at', 'updated_at', 'isVerified']
 
 
     def create(self, validated_data):

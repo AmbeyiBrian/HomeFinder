@@ -179,6 +179,19 @@ const UserManagement = () => {
         />
       )}
 
+      {!isLogin && (
+        <View>
+            <Text style={styles.termsConditionsButtonText}>By registering, you imply that have agreed to terms & conditions</Text>
+            <TouchableOpacity
+            style={styles.termsConditions}
+            onPress={()=>navigation.navigate("TermsAndConditions")}
+            disabled={isLoading}
+          >
+            <Text style={styles.authButtonText}>Terms & Conditions </Text>
+          </TouchableOpacity>
+      </View>
+      )}
+
       <TouchableOpacity
         style={styles.authButton}
         onPress={handleAuthentication}
@@ -205,11 +218,11 @@ const UserManagement = () => {
       <Text></Text>
 
       <TouchableOpacity
-        style={styles.authButton}
+        style={styles.secondaryButton}
         onPress={()=>navigation.navigate("Main")}
         disabled={isLoading}
       >
-          <Text style={styles.authButtonText}>Go back to Map</Text>
+          <Text style={styles.authButtonText}>Continue as Guest</Text>
       </TouchableOpacity>
 
     </KeyboardAvoidingView>
@@ -217,7 +230,8 @@ const UserManagement = () => {
 };
 
 const styles = StyleSheet.create({
-  container: {
+
+    container: {
     flex: 1,
     justifyContent: 'center',
     padding: 20,
@@ -264,6 +278,25 @@ const styles = StyleSheet.create({
   switchAuthText: {
     color: '#2089dc',
     fontSize: 14
+  },
+  secondaryButton: {
+    backgroundColor: '#6c757d',
+    height: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 5
+    },
+  termsConditions:{
+    backgroundColor: '#2089dc',
+    height: 20,
+    marginVertical:20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 5,
+  },
+  termsConditionsButtonText:{
+    fontSize: 13,
+    textAlign: 'center',
   }
 });
 

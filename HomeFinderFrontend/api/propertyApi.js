@@ -1,34 +1,40 @@
 import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
 
-//const API_BASE_URL = 'http://10.5.4.131:8000/api';
-const API_BASE_URL = 'http://192.169.0.100:8000/api';
+//const API_BASE_URL = 'http://192.169.0.102:8000/api';
+const API_BASE_URL = 'http://10.5.4.131:8000/api';
+const STORAGE_KEYS = {
+  ACCESS_TOKEN: 'accessToken',
+  REFRESH_TOKEN: 'refreshToken',
+  USER_INFO: 'userInfo'
+};
 
-// Create axios instance with default config
+const TIMEOUT = 10000;
+
+class ApiError extends Error {
+  constructor(message, status, data) {
+    super(message);
+    this.status = status;
+    this.data = data;
+  }
+}
+
 const axiosInstance = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 10000,
+  timeout: TIMEOUT,
 });
 
-// Add request interceptor for authentication
 axiosInstance.interceptors.request.use(
   async (config) => {
-    try {
-      const token = await SecureStore.getItemAsync('accessToken');
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-      }
-      return config;
-    } catch (error) {
-      return Promise.reject(error);
+    const token = await SecureStore.getItemAsync(STORAGE_KEYS.ACCESS_TOKEN);
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
     }
+    return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(new ApiError('Request failed', null, error))
 );
 
-// Add response interceptor for token refresh
 axiosInstance.interceptors.response.use(
   (response) => response,
   async (error) => {
@@ -36,87 +42,101 @@ axiosInstance.interceptors.response.use(
 
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
+
       try {
-        const refreshToken = await SecureStore.getItemAsync('refreshToken');
-        const response = await axios.post(`${API_BASE_URL}/users/api/token/refresh/`, {
+        const refreshToken = await SecureStore.getItemAsync(STORAGE_KEYS.REFRESH_TOKEN);
+        if (!refreshToken) {
+          throw new ApiError('No refresh token found', 401);
+        }
+
+        const { data } = await axios.post(`${API_BASE_URL}/users/api/token/refresh/`, {
           refresh: refreshToken,
         });
 
-        const { access } = response.data;
-        await SecureStore.setItemAsync('accessToken', access);
+        const { access, user } = data;
+
+        await Promise.all([
+          SecureStore.setItemAsync(STORAGE_KEYS.ACCESS_TOKEN, access),
+          SecureStore.setItemAsync(STORAGE_KEYS.USER_INFO, JSON.stringify(user))
+        ]);
 
         originalRequest.headers.Authorization = `Bearer ${access}`;
         return axiosInstance(originalRequest);
       } catch (refreshError) {
-        // If refresh fails, clear tokens
-        await SecureStore.deleteItemAsync('accessToken');
-        await SecureStore.deleteItemAsync('refreshToken');
-        throw refreshError;
+        await clearAuthStorage();
+        throw new ApiError('Session expired', 401, refreshError);
       }
     }
-    return Promise.reject(error);
+
+    throw new ApiError(
+      error.response?.data?.message || 'Request failed',
+      error.response?.status,
+      error.response?.data
+    );
   }
 );
 
+const clearAuthStorage = async () => {
+  await Promise.all(
+    Object.values(STORAGE_KEYS).map(key => SecureStore.deleteItemAsync(key))
+  );
+};
+
+const buildQueryParams = (filters) => {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') {
+      params.append(key, value);
+    }
+  });
+  return params.toString();
+};
+
 export const propertyApi = {
-  // Properties
   getAllProperties: async (filters = {}) => {
     try {
-      const {
-        minPrice,
-        maxPrice,
-        bedrooms,
-        bathrooms,
-        propertyType,
-        listingType,
-        city
-      } = filters;
-
-      const params = new URLSearchParams();
-
-      if (minPrice) params.append('min_price', minPrice);
-      if (maxPrice) params.append('max_price', maxPrice);
-      if (bedrooms) params.append('bedrooms', bedrooms);
-      if (bathrooms) params.append('bathrooms', bathrooms);
-      if (propertyType) params.append('property_type', propertyType);
-      if (listingType) params.append('listing_type', listingType);
-      if (city) params.append('city', city);
-
-      const response = await axiosInstance.get(`/properties/properties/?${params.toString()}`);
-      return response.data;
+      const params = buildQueryParams({
+        min_price: filters.minPrice,
+        max_price: filters.maxPrice,
+        bedrooms: filters.bedrooms,
+        bathrooms: filters.bathrooms,
+        property_type: filters.propertyType, // Change here
+        listing_type: filters.listingType,
+        city: filters.city,
+        owner: filters.owner
+      });
+      const { data } = await axiosInstance.get(`/properties/properties/?${params}`);
+      return data;
     } catch (error) {
-      console.error('Error fetching properties:', error.response?.data || error.message);
-      throw error;
+      throw error instanceof ApiError ? error : new ApiError('Failed to fetch properties', null, error);
     }
   },
 
+
   getPropertyById: async (id) => {
     try {
-      const response = await axiosInstance.get(`/properties/properties/${id}/`);
-      return response.data;
+      const { data } = await axiosInstance.get(`/properties/properties/${id}/`);
+      return data;
     } catch (error) {
-      console.error('Error fetching property:', error.response?.data || error.message);
-      throw error;
+      throw new ApiError(`Failed to fetch property ${id}`, error.response?.status, error.response?.data);
     }
   },
 
   createProperty: async (propertyData) => {
     try {
-      const response = await axiosInstance.post('/properties/properties/', propertyData);
-      return response.data;
+      const { data } = await axiosInstance.post('/properties/properties/', propertyData);
+      return data;
     } catch (error) {
-      console.error('Error creating property:', error.response?.data || error.message);
-      throw error;
+      throw new ApiError('Failed to create property', error.response?.status, error.response?.data);
     }
   },
 
   updateProperty: async (id, propertyData) => {
     try {
-      const response = await axiosInstance.put(`/properties/properties/${id}/`, propertyData);
-      return response.data;
+      const { data } = await axiosInstance.put(`/properties/properties/${id}/`, propertyData);
+      return data;
     } catch (error) {
-      console.error('Error updating property:', error.response?.data || error.message);
-      throw error;
+      throw new ApiError(`Failed to update property ${id}`, error.response?.status, error.response?.data);
     }
   },
 
@@ -124,34 +144,27 @@ export const propertyApi = {
     try {
       await axiosInstance.delete(`/properties/properties/${id}/`);
     } catch (error) {
-      console.error('Error deleting property:', error.response?.data || error.message);
-      throw error;
+      throw new ApiError(`Failed to delete property ${id}`, error.response?.status, error.response?.data);
     }
   },
 
-  // Property Types
   getPropertyTypes: async () => {
     try {
-      const response = await axiosInstance.get('/properties/property-types/');
-      return response.data;
+      const { data } = await axiosInstance.get('/properties/property-types/');
+      return data;
     } catch (error) {
-      console.error('Error fetching property types:', error.response?.data || error.message);
-      throw error;
+      throw new ApiError('Failed to fetch property types', error.response?.status, error.response?.data);
     }
   },
 
-  // Property Images
   createPropertyImage: async (formData) => {
     try {
-      const response = await axiosInstance.post('/properties/property-images/', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
+      const { data } = await axiosInstance.post('/properties/property-images/', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
       });
-      return response.data;
+      return data;
     } catch (error) {
-      console.error('Error uploading image:', error.response?.data || error.message);
-      throw error;
+      throw new ApiError('Failed to upload image', error.response?.status, error.response?.data);
     }
   },
 
@@ -159,111 +172,64 @@ export const propertyApi = {
     try {
       await axiosInstance.delete(`/properties/property-images/${imageId}/delete/`);
     } catch (error) {
-      console.error('Error deleting image:', error.response?.data || error.message);
-      throw error;
+      throw new ApiError(`Failed to delete image ${imageId}`, error.response?.status, error.response?.data);
     }
   },
 
-  //User Registration
-  registerUser: async (payload)=>{
-    try{
-        const response = await axiosInstance.post('users/users/', payload);
-    }
-    catch{
-      console.error('User registration error:', error.response?.data || error.message);
-      throw error;
+  registerUser: async (payload) => {
+    try {
+      const { data } = await axiosInstance.post('users/users/', payload);
+      return data;
+    } catch (error) {
+      throw new ApiError('User registration failed', error.response?.status, error.response?.data);
     }
   },
 
-  // Authentication
   loginUser: async (credentials) => {
     try {
-      const response = await axiosInstance.post('/users/api/token/', credentials);
-      const { access, refresh, user } = response.data;
+      const { data } = await axiosInstance.post('/users/api/token/', credentials);
+      const { access, refresh, user } = data;
 
-      await SecureStore.setItemAsync('accessToken', access);
-      await SecureStore.setItemAsync('refreshToken', refresh);
-      if (user) {
-        await SecureStore.setItemAsync('userInfo', JSON.stringify(user));
-      }
+      await Promise.all([
+        SecureStore.setItemAsync(STORAGE_KEYS.ACCESS_TOKEN, access),
+        SecureStore.setItemAsync(STORAGE_KEYS.REFRESH_TOKEN, refresh),
+        SecureStore.setItemAsync(STORAGE_KEYS.USER_INFO, JSON.stringify(user))
+      ]);
 
-      return response.data;
+      return data;
     } catch (error) {
-      console.error('Login error:', error.response?.data || error.message);
-      throw error;
+      throw new ApiError('Login failed', error.response?.status, error.response?.data);
     }
   },
 
   logoutUser: async () => {
+    await clearAuthStorage();
+  },
+
+  validateToken: async () => {
     try {
-      await SecureStore.deleteItemAsync('accessToken')
-      await SecureStore.deleteItemAsync('userInfo')
-      const refreshToken = await SecureStore.getItemAsync('refreshToken');
-      if (!refreshToken) throw new Error('No refresh token found');
-
-      const response = await axios.post(`${API_BASE_URL}/users/api/token/refresh/`, {
-        refresh: refreshToken,
-      });
-
-    } catch (error) {
-      console.error('Token refresh error:', error.response?.data || error.message);
-      throw error;
+      const token = await SecureStore.getItemAsync(STORAGE_KEYS.ACCESS_TOKEN);
+      return !!token;
+    } catch {
+      return false;
     }
   },
 
-  refreshToken: async () => {
-    try {
-      const refreshToken = await SecureStore.getItemAsync('refreshToken');
-      if (!refreshToken) throw new Error('No refresh token found');
-
-      const response = await axios.post(`${API_BASE_URL}/users/api/token/refresh/`, {
-        refresh: refreshToken,
-      });
-
-      const { access } = response.data;
-      await SecureStore.setItemAsync('accessToken', access);
-      return access;
-    } catch (error) {
-      console.error('Token refresh error:', error.response?.data || error.message);
-      throw error;
-    }
-  },
-
-  // Add this to the propertyApi object
-validateToken: async () => {
-  try {
-    const token = await SecureStore.getItemAsync('accessToken');
-    if (!token) throw new Error('No access token found');
-
-    const response = await axiosInstance.post('/users/api/token/verify/', {
-      token: token
-    });
-
-    return true; // Token is valid if no error is thrown
-  } catch (error) {
-    console.error('Token validation error:', error.response?.data || error.message);
-    return false; // Token is invalid
-  }
-},
-
-// Favorites
   getFavorites: async () => {
     try {
-      const response = await axiosInstance.get('/properties/favorites/');
-      return response.data;
+      const { data } = await axiosInstance.get('/properties/favorites/');
+      return data;
     } catch (error) {
-      console.error('Error fetching favorites:', error.response?.data || error.message);
-      throw error;
+      throw new ApiError('Failed to fetch favorites', error.response?.status, error.response?.data);
     }
   },
 
   addFavorite: async (propertyId) => {
     try {
-      const response = await axiosInstance.post('/properties/favorites/', { property: propertyId });
-      return response.data;
+      const { data } = await axiosInstance.post('/properties/favorites/', { property: propertyId });
+      return data;
     } catch (error) {
-      console.error('Error adding favorite:', error.response?.data || error.message);
-      throw error;
+      throw new ApiError('Failed to add favorite', error.response?.status, error.response?.data);
     }
   },
 
@@ -271,8 +237,56 @@ validateToken: async () => {
     try {
       await axiosInstance.delete(`/properties/favorites/${propertyId}/`);
     } catch (error) {
-      console.error('Error removing favorite:', error.response?.data || error.message);
-      throw error;
+      throw new ApiError('Failed to remove favorite', error.response?.status, error.response?.data);
     }
   },
+
+
+  updateProfile: async (formData) => {
+      try {
+        const { data } = await axiosInstance.put(
+          `/users/users/${formData.get('id')}/`,
+          formData,
+          {
+            headers: {
+              'Content-Type': 'multipart/form-data',
+              'Accept': 'application/json'
+            },
+            transformRequest: (data) => data, // Prevent axios from JSON stringifying the FormData
+          }
+        );
+        return data;
+      } catch (error) {
+        throw new ApiError('Failed to update profile', error.response?.status, error.response?.data);
+      }
+    },
+
+
+  changePassword: async (passwords) => {
+    try {
+      const { data } = await axiosInstance.post('/users/users/profile/change-password/', passwords);
+      return data;
+    } catch (error) {
+      throw new ApiError('Failed to change password', error.response?.status, error.response?.data);
+    }
+  },
+
+  postReview: async (review) => {
+    try {
+      const { data } = await axiosInstance.post('/reviews/reviews/', review);
+      return data;
+    } catch (error) {
+      return error
+    }
+  },
+
+  getReviews: async (product_id) => {
+    try {
+      const { data } = await axiosInstance.get(`/reviews/reviews/property/${product_id}/average-rating/`);
+      return data;
+    } catch (error) {
+      throw new ApiError('Failed to load reviews', error.response?.status, error.response?.data);
+    }
+  }
+
 };

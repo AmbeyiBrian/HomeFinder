@@ -17,12 +17,13 @@ class PropertyListView(generics.ListCreateAPIView):
     def get_queryset(self):
         queryset = Property.objects.all()
 
-        # Price filtering
+        # Get query parameters
         min_price = self.request.query_params.get('min_price')
         max_price = self.request.query_params.get('max_price')
         city = self.request.query_params.get('city')
-        property_type = self.request.query_params.get('property_type')
+        property_type = self.request.query_params.get('property_type')  # Expecting 'name' here
         listing_type = self.request.query_params.get('listing_type')
+        owner = self.request.query_params.get('owner')  # New parameter for owner
 
         try:
             if min_price:
@@ -32,14 +33,17 @@ class PropertyListView(generics.ListCreateAPIView):
             if city:
                 queryset = queryset.filter(city__icontains=city)
             if property_type:
-                queryset = queryset.filter(property_type__name__icontains=property_type)
+                queryset = queryset.filter(property_type__name__icontains=property_type)  # Match name
             if listing_type:
                 queryset = queryset.filter(listing_type__icontains=listing_type)
+            if owner:
+                queryset = queryset.filter(owner_id=owner)  # Filter by owner ID
         except ValueError as e:
             # Handle invalid numeric values gracefully
             print(f"Filtering error: {str(e)}")
 
         return queryset
+
 
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)

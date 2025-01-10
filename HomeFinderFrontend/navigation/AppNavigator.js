@@ -1,13 +1,13 @@
-// navigation/AppNavigator.js
 import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
+import * as SecureStore from 'expo-secure-store';
 import { FilterProvider } from '../context/FilterContext';
 import { PropertyProvider } from '../context/PropertyContext';
 
-// Import all your screens
+// Import screens
 import HomeScreen from '../screens/HomeScreen';
 import PropertyListScreen from '../screens/PropertyListScreen';
 import PropertyDetailScreen from '../screens/PropertyDetailScreen';
@@ -17,10 +17,40 @@ import AddPropertyScreen from '../screens/NewPropertyScreen';
 import UserManagement from '../screens/UserManagementScreen';
 import EditProperty from '../screens/EditPropertyScreen';
 import UserProfile from '../screens/UserProfile';
-
+import TermsAndConditions from '../screens/TermsConditions';
+import PropertyReviews from '../components/PropertyReviews';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
+
+// Create a wrapper component for UserProfile tab
+const UserProfileWrapper = ({ navigation }) => {
+  const [isChecking, setIsChecking] = React.useState(true);
+
+  React.useEffect(() => {
+    checkAuth();
+  }, []);
+
+  const checkAuth = async () => {
+    try {
+      const token = await SecureStore.getItemAsync('accessToken');
+      if (!token) {
+        navigation.navigate('UserManagement');
+      }
+      setIsChecking(false);
+    } catch (error) {
+      console.error('Auth check failed:', error);
+      navigation.navigate('UserManagement');
+      setIsChecking(false);
+    }
+  };
+
+  if (isChecking) {
+    return null; // Or a loading spinner
+  }
+
+  return <UserProfile />;
+};
 
 // Bottom Tab Navigator
 function BottomTabNavigator() {
@@ -35,7 +65,7 @@ function BottomTabNavigator() {
             iconName = focused ? 'list' : 'list-outline';
           } else if (route.name === 'Favorites') {
             iconName = focused ? 'heart' : 'heart-outline';
-          }else if (route.name === 'UserProfile') {
+          } else if (route.name === 'UserProfile') {
             iconName = focused ? 'person' : 'person-outline';
           }
           return <Ionicons name={iconName} size={size} color={color} />;
@@ -61,7 +91,7 @@ function BottomTabNavigator() {
       />
       <Tab.Screen
         name="UserProfile"
-        component={UserProfile}
+        component={UserProfileWrapper}
         options={{ title: 'User Profile' }}
       />
     </Tab.Navigator>
@@ -69,58 +99,64 @@ function BottomTabNavigator() {
 }
 
 // Main App Navigator
-export default function App() {
+export default function AppNavigator() {
   return (
-     <FilterProvider>
-        <PropertyProvider>
-            <NavigationContainer>
-              <Stack.Navigator>
-                <Stack.Screen
-                  name="Main"
-                  component={BottomTabNavigator}
-                  options={{ headerShown: false }}
-                />
+    <FilterProvider>
+      <PropertyProvider>
+        <NavigationContainer>
+          <Stack.Navigator>
+            <Stack.Screen
+              name="Main"
+              component={BottomTabNavigator}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="PropertyListScreen"
+              component={PropertyListScreen}
+            />
+            <Stack.Screen
+              name="PropertyDetail"
+              component={PropertyDetailScreen}
+              options={({ route }) => ({
+                title: route.params?.property?.name || 'Property Details'
+              })}
+            />
+            <Stack.Screen
+              name="SearchFilter"
+              component={SearchFilterScreen}
+              options={{ title: 'Property Preferences' }}
+            />
+            <Stack.Screen
+              name="newProperty"
+              component={AddPropertyScreen}
+              options={{ title: 'New Property' }}
+            />
+            <Stack.Screen
+              name="UserManagement"
+              component={UserManagement}
+              options={{
+                title: 'Account',
+                headerLeft: () => null // Removes back button
+              }}
+            />
+            <Stack.Screen
+              name="EditProperty"
+              component={EditProperty}
+              options={{ title: 'Edit Property' }}
+            />
+            <Stack.Screen
+              name="TermsAndConditions"
+              component={TermsAndConditions}
+              options={{ title: 'Terms & Conditions' }}
+            />
+            <Stack.Screen
+              name="PropertyReviews"
+              component={PropertyReviews}
+            />
 
-                <Stack.Screen
-                  name="PropertyListScreen"
-                  component={PropertyListScreen}
-                />
-
-                <Stack.Screen
-                  name="PropertyDetail"
-                  component={PropertyDetailScreen}
-                  options={({ route }) => ({
-                    title: route.params?.property?.name || 'Property Details'
-                  })}
-                />
-
-                <Stack.Screen
-                    name="SearchFilter"
-                    component={SearchFilterScreen}
-                    options={{ title: 'Filter Properties' }}
-                 />
-
-                 <Stack.Screen
-                    name="newProperty"
-                    component={AddPropertyScreen}
-                    options={{ title: 'New Property' }}
-                 />
-
-                 <Stack.Screen
-                    name="UserManagement"
-                    component={UserManagement}
-                    options={{ title: 'Account' }}
-                 />
-
-                 <Stack.Screen
-                    name="EditProperty"
-                    component={EditProperty}
-                    options={{ title: 'EditProperty' }}
-                 />
-
-              </Stack.Navigator>
-            </NavigationContainer>
-        </PropertyProvider>
-     </FilterProvider>
+          </Stack.Navigator>
+        </NavigationContainer>
+      </PropertyProvider>
+    </FilterProvider>
   );
 }

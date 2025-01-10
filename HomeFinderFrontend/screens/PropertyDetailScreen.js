@@ -23,11 +23,14 @@ import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import * as SecureStore from 'expo-secure-store';
 import * as ImagePicker from 'expo-image-picker';
 import { propertyApi } from '../api/propertyApi';
+import PropertyReviews from '../components/PropertyReviews';
 
 const { width, height } = Dimensions.get('window');
 const HEADER_MAX_HEIGHT = height * 0.5; // Set to 50% of screen height
 const HEADER_MIN_HEIGHT = Platform.OS === 'ios' ? 90 : 70;
 const HEADER_SCROLL_DISTANCE = HEADER_MAX_HEIGHT - HEADER_MIN_HEIGHT;
+const MAX_LINES = 3;
+
 
 const PropertyImage = ({ image, onPress }) => (
   <TouchableOpacity onPress={onPress} style={styles.imageWrapper}>
@@ -97,6 +100,8 @@ const PropertyDetailScreen = ({ route, navigation }) => {
     extrapolate: 'clamp',
   });
 
+  const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
+
   const panResponder = PanResponder.create({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: (evt, gestureState) => {
@@ -156,6 +161,7 @@ const PropertyDetailScreen = ({ route, navigation }) => {
         reviews: propertyData.reviews ?? [],
         rating: propertyData.rating ?? 0,
         listing_type: propertyData.listing_type ?? 0,
+        is_verified:propertyData.is_verified ?? '',
       });
       setLoading(false);
     } catch (err) {
@@ -246,13 +252,19 @@ const PropertyDetailScreen = ({ route, navigation }) => {
   };
 
     const checkIfFavorited = async () => {
-    try {
-      const response = await propertyApi.getFavorites();
-      const isFav = response.some(fav => fav.property.id === propertyId);
-      setIsFavorited(isFav);
-    } catch (error) {
-      console.error('Error checking favorites:', error);
-    }
+        if(validToken){
+            try {
+              const response = await propertyApi.getFavorites();
+              const isFav = response.some(fav => fav.property.id === propertyId);
+              setIsFavorited(isFav);
+            } catch (error) {
+              console.error('Error checking favorites:', error);
+            }
+        }else{
+
+        }
+
+
   };
 
   useEffect(() => {
@@ -261,24 +273,39 @@ const PropertyDetailScreen = ({ route, navigation }) => {
 
 
     const handleFavoritePress = async () => {
-    try {
-      if (isFavorited) {
-        // Find the favorite ID first
-        const favorites = await propertyApi.getFavorites();
-        const favorite = favorites.find(fav => fav.property.id === propertyId);
-        if (favorite) {
-          await propertyApi.removeFavorite(favorite.id);
-          setIsFavorited(false);
+      if (validToken) {
+        try {
+          if (isFavorited) {
+            // Find the favorite ID first
+            const favorites = await propertyApi.getFavorites();
+            const favorite = favorites.find(fav => fav.property.id === propertyId);
+            if (favorite) {
+              await propertyApi.removeFavorite(favorite.id);
+              setIsFavorited(false);
+            }
+          } else {
+            await propertyApi.addFavorite(propertyId);
+            setIsFavorited(true);
+          }
+        } catch (error) {
+          console.error('Error managing favorite:', error);
+          Alert.alert('Error', 'Failed to update favorites');
         }
       } else {
-        await propertyApi.addFavorite(propertyId);
-        setIsFavorited(true);
+        Alert.alert(
+        'Sign In Required',
+        'Please sign in to favorite this property.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Sign In',
+            onPress: () => navigation.navigate('UserManagement')
+          }
+        ]
+      );
       }
-    } catch (error) {
-      console.error('Error managing favorite:', error);
-      Alert.alert('Error', 'Failed to update favorites');
-    }
-  };
+    };
+
 
   useEffect(() => {
     const fetchData = async () => {
@@ -446,7 +473,7 @@ const PropertyDetailScreen = ({ route, navigation }) => {
             </Animated.Text>
             <View style={styles.priceTagContainer}>
               <FontAwesome5 name="tag" size={20} color="#4A90E2" />
-              <Text style={styles.detailPrice}>${property.price.toLocaleString()}</Text>
+              <Text style={styles.detailPrice}>Ksh {property.price.toLocaleString()}</Text>
             </View>
           </View>
 
@@ -457,12 +484,18 @@ const PropertyDetailScreen = ({ route, navigation }) => {
             </Text>
           </View>
 
-          <Text style={[
-            styles.availability,
-            property.availability === 'available' ? styles.available : styles.sold
-          ]}>
-            {property.availability === 'available' ? 'Available' : 'Sold Out'}
-          </Text>
+          <View style={styles.badgeContainer}>
+              <View style={[styles.badge, styles.statusBadge]}>
+                <View style={styles.dot} />
+                <Text style={styles.badgeText}>{property.availability}</Text>
+              </View>
+              {property.is_verified && (
+                <View style={[styles.badge, styles.verifiedBadge]}>
+                  <View style={[styles.dot, styles.verifiedDot]} />
+                  <Text style={styles.badgeText}>Verified</Text>
+                </View>
+              )}
+            </View>
 
           <View style={styles.propertyFeatures}>
             <PropertyFeature icon="bed" value={property.bedrooms} label="Bedrooms" />
@@ -491,35 +524,35 @@ const PropertyDetailScreen = ({ route, navigation }) => {
           </View>
 
           <View style={styles.card}>
-            <SectionHeader icon="star" title="Reviews" IconComponent={Ionicons} />
-            <View style={styles.ratingContainer}>
-              <Text style={styles.rating}>{property.rating}</Text>
-              <View style={styles.starsContainer}>
-                {[1, 2, 3, 4, 5].map((star) => (
-                  <Ionicons
-                    key={star}
-                    name={star <= property.rating ? "star" : "star-outline"}
-                    size={20}
-                    color="#FFD700"
-                  />
-                ))}
-              </View>
+              <SectionHeader icon="star" title="Reviews" IconComponent={Ionicons} />
+              <PropertyReviews
+                propertyId={property.id.toString()}
+                onReviewAdded={() => fetchPropertyDetails()}
+                navigation={navigation}
+              />
             </View>
-            {property.reviews.length > 0 ? (
-              property.reviews.map((review, index) => (
-                <View key={index} style={styles.reviewContainer}>
-                  <Text style={styles.reviewText}>"{review}"</Text>
-                </View>
-              ))
-            ) : (
-              <Text style={styles.noReviewsText}>No reviews yet</Text>
-            )}
-          </View>
 
           <View style={styles.card}>
-            <SectionHeader icon="description" title="Description" />
-            <Text style={styles.description}>{property.description}</Text>
-          </View>
+              <SectionHeader icon="description" title="Description" />
+              <View>
+                <Text
+                  style={styles.description}
+                  numberOfLines={isDescriptionExpanded ? undefined : MAX_LINES}
+                >
+                  {property.description}
+                </Text>
+                {property.description.length > 120 && (
+                  <TouchableOpacity
+                    onPress={() => setIsDescriptionExpanded(!isDescriptionExpanded)}
+                    style={styles.seeMoreButton}
+                  >
+                    <Text style={styles.seeMoreText}>
+                      {isDescriptionExpanded ? 'See less' : 'See more...'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
 
           <View style={styles.buttonsContainer}>
             <ActionButton
@@ -821,6 +854,13 @@ const styles = StyleSheet.create({
     color: '#666',
     lineHeight: 24,
   },
+  seeMoreButton: {
+    marginTop: 8,
+  },
+  seeMoreText: {
+    color: '#4A90E2',
+    fontWeight: '600',
+  },
   buttonsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -951,6 +991,42 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10, // Reduced padding to fit four buttons
     borderRadius: 10,
     elevation: 2,
+  },
+  badgeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  badge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    marginRight: 8,
+  },
+  statusBadge: {
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+  },
+  verifiedBadge: {
+    backgroundColor: 'rgba(76, 175, 80, 0.9)',
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#FF9800',
+    marginRight: 6,
+  },
+  verifiedDot: {
+    backgroundColor: '#fff',
+  },
+  badgeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'capitalize',
   },
 });
 

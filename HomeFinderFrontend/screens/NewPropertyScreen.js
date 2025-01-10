@@ -217,7 +217,7 @@ const AddPropertyScreen = ({ navigation }) => {
         keyboardType="numeric"
       />
 
-      <Button title="Submit" onPress={handleSubmit} color="#4CAF50" />
+      <Button title="Submit" onPress={handleSubmit} style={styles.saveButton} />
 
       <Text></Text>
       <Text></Text>
@@ -245,7 +245,10 @@ const styles = StyleSheet.create({
     marginVertical: 15,
     paddingLeft: 10,
   },
-  picker: {},
+  saveButton: {
+    backgroundColor: '#007AFF',
+    borderRadius:15,
+  },
 });
 
 export default AddPropertyScreen;

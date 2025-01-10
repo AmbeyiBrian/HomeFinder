@@ -1,30 +1,25 @@
 # users/views.py
-from rest_framework import viewsets, permissions, status
+from rest_framework import viewsets, permissions
 from rest_framework.decorators import action
 from .models import CustomUser
-from .serializers import UserSerializer, UserRegistrationSerializer
+from .serializers import UserRegistrationSerializer,ChangePasswordSerializer
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework_simplejwt.views import TokenObtainPairView
 from .serializers import CustomTokenObtainPairSerializer
-
 from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
-from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework_simplejwt.tokens import OutstandingToken
-
-
+from rest_framework.decorators import api_view, permission_classes
+from django.contrib.auth import update_session_auth_hash
 
 class UserViewSet(viewsets.ModelViewSet):
     queryset = CustomUser.objects.all()
-    serializer_class = UserSerializer
+    serializer_class = UserRegistrationSerializer
     # permission_classes = [permissions.IsAuthenticated]
 
     def get_serializer_class(self):
         if self.action == 'create':
             return UserRegistrationSerializer
-        return UserSerializer
+        return UserRegistrationSerializer
 
     @action(detail=False, methods=['post'], permission_classes=[permissions.AllowAny])
     def register(self, request):
@@ -32,7 +27,7 @@ class UserViewSet(viewsets.ModelViewSet):
         if serializer.is_valid():
             user = serializer.save()
             return Response({
-                'user': UserSerializer(user).data
+                'user': UserRegistrationSerializer(user).data
             }, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -44,8 +39,7 @@ class UserDetailView(APIView):
         user = request.user
         if user.is_anonymous:
             raise AuthenticationFailed("User is not authenticated.")
-        serializer = UserSerializer(user)
-        print(serializer.data)
+        serializer = UserRegistrationSerializer(user)
         return Response(serializer.data)
 
 class TokenObtainPairWithUserDetailsView(TokenObtainPairView):
@@ -61,15 +55,19 @@ class TokenObtainPairWithUserDetailsView(TokenObtainPairView):
         tokens = serializer.validated_data
         user = serializer.user  # The authenticated user from the serializer
 
+        # Get the domain or server address dynamically if possible
+        server_address = request.build_absolute_uri('/')
+
         user_details = {
             'username': user.username,
             'email': user.email,
             'role': user.role,
             'is_verified': user.is_verified,
-            'firstname':user.first_name,
-            'lastname':user.last_name,
-            'phone_number':user.phone_number,
-            'profile_picture': user.profile_picture.url if user.profile_picture else None,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'phone_number': user.phone_number,
+            'profile_picture': server_address + user.profile_picture.url if user.profile_picture else None,
+            'id': user.id,
         }
 
         # Add the tokens and user details to the response
@@ -81,54 +79,73 @@ class TokenObtainPairWithUserDetailsView(TokenObtainPairView):
         return Response(response_data, status=status.HTTP_200_OK)
 
 
-from rest_framework_simplejwt.tokens import RefreshToken, AccessToken, TokenError
-from django.contrib.auth import get_user_model
-from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
+
+from rest_framework_simplejwt.views import TokenRefreshView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 
 
-class LogoutView(APIView):
-    permission_classes = [IsAuthenticated]
+class TokenRefreshWithUserDetailsView(TokenRefreshView):
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
 
-    def post(self, request):
         try:
-            refresh_token = request.data.get('refresh')
-            if not refresh_token:
-                return Response({'error': 'Refresh token is required.'}, status=status.HTTP_400_BAD_REQUEST)
+            serializer.is_valid(raise_exception=True)
+        except TokenError as e:
+            raise InvalidToken(e.args[0])
 
-            # Get token objects
-            refresh = RefreshToken(refresh_token)
-            access = AccessToken(request.auth)
+        # Get the new tokens
+        tokens = serializer.validated_data
 
-            # Create outstanding token records
-            OutstandingToken.objects.create(
-                token=str(access),
-                user=request.user,
-                jti=access['jti'],
-                expires_at=access['exp']
+        # Get the user from the access token
+        from rest_framework_simplejwt.tokens import AccessToken
+        access_token = AccessToken(tokens['access'])
+        user_id = access_token['user_id']
+
+        # Get the user model
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        user = User.objects.get(id=user_id)
+
+        # Prepare user details
+        user_details = {
+            'username': user.username,
+            'email': user.email,
+            'role': user.role,
+            'is_verified': user.is_verified,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'phone_number': user.phone_number,
+            'profile_picture': user.profile_picture.url if user.profile_picture else None,
+            'id':user.id,
+        }
+
+        # Combine tokens and user details in response
+        response_data = {
+            'access': tokens['access'],
+            'refresh': tokens.get('refresh', request.data['refresh']),  # Keep the same refresh token
+            'user': user_details,
+        }
+
+        return Response(response_data, status=status.HTTP_200_OK)
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def change_password(request):
+    serializer = ChangePasswordSerializer(data=request.data)
+    if serializer.is_valid():
+        user = request.user
+        if user.check_password(serializer.validated_data['old_password']):
+            user.set_password(serializer.validated_data['new_password'])
+            user.save()
+            # Update session to prevent logout
+            update_session_auth_hash(request, user)
+            return Response(
+                {"message": "Password successfully changed"},
+                status=status.HTTP_200_OK
             )
-
-            # Blacklist both tokens
-            BlacklistedToken.objects.create(token=OutstandingToken.objects.get(jti=access['jti']))
-            BlacklistedToken.objects.create(token=OutstandingToken.objects.get(jti=refresh['jti']))
-
-            return Response({'message': 'Successfully logged out.'}, status=status.HTTP_200_OK)
-
-        except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-
-# Test script
-def test_token_invalidation():
-    # Get tokens
-    refresh = RefreshToken.for_user(user)
-    access = refresh.access_token
-
-    # Call logout
-    response = logout_view(request)
-
-    # Verify tokens
-    try:
-        AccessToken(str(access))
-        print("Access token still valid")
-    except TokenError:
-        print("Access token invalid")
+        return Response(
+            {"error": "Incorrect old password"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

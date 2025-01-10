@@ -28,7 +28,7 @@ class Property(models.Model):
     price = models.DecimalField(max_digits=12, decimal_places=2)
     property_type = models.ForeignKey(PropertyType, on_delete=models.SET_NULL, null=True)
     bedrooms = models.IntegerField(validators=[MinValueValidator(0)])
-    bathrooms = models.DecimalField(max_digits=3, decimal_places=1, validators=[MinValueValidator(0)])
+    bathrooms = models.DecimalField(max_digits=10, decimal_places=0, validators=[MinValueValidator(0)])
     square_feet = models.IntegerField(validators=[MinValueValidator(0)])
     address = models.CharField(max_length=300)
     city = models.CharField(max_length=100)
@@ -38,6 +38,7 @@ class Property(models.Model):
     longitude = models.FloatField(null=True, blank=True)
 
     status = models.CharField(max_length=20, choices=SALE_STATUS_CHOICES, default='available')
+    is_verified=models.BooleanField(default=False)
 
     owner = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='properties')
     created_at = models.DateTimeField(auto_now_add=True)

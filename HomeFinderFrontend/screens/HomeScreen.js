@@ -303,6 +303,7 @@ const HomeScreen = ({ navigation, route }) => {
               minimumTrackTintColor="#007bff"
               maximumTrackTintColor="#000000"
             />
+
             <Text style={styles.radiusText}>
               {state.radius} meters
             </Text>
@@ -398,8 +399,8 @@ const styles = StyleSheet.create({
     right: 0,
     padding: 20,
     backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderTopLeftRadius: 40,
+    borderTopRightRadius: 40,
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: -2 },
     shadowOpacity: 0.1,
